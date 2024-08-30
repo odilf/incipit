@@ -30,7 +30,7 @@ async fn main() -> eyre::Result<()> {
                 Ok(response) => response,
                 Err(error) => {
                     tracing::warn!(?error);
-                    (StatusCode::NOT_FOUND, "Not Found").into_response()
+                    (StatusCode::INTERNAL_SERVER_ERROR, "500 - Incipit error").into_response()
                 }
             }
         },
