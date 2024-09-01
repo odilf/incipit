@@ -90,6 +90,7 @@ pub fn read_config() -> Result<RuntimeConfig, GetConfigError> {
         return Err(GetConfigError::ConfigNotFound);
     };
 
+    tracing::debug!("Found config in {}", directory.display());
     let file = std::fs::read_to_string(directory.join("uoh.toml"))?;
 
     let user_config: FileConfig = toml::from_str(&file)?;
