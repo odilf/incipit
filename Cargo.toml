@@ -9,16 +9,24 @@ license = "MIT"
 [dependencies]
 axum = "0.7.5"
 axum-server = { version = "0.6", features = ["tls-rustls"] }
+clap = { version = "4.5.17", features = ["derive"] }
 color-eyre = "0.6.3"
+figment = { version = "0.10.19", features = ["toml", "env", "json"]}
+futures = "0.3.30"
 http-body-util = "0.1.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1.1", features = ["client-legacy"] }
+hyper-util = { version = "0.1.1", features = ["full"] }
 notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
-reqwest = "0.12.3"
 serde = { version = "1.0.203", features = ["derive"] }
+serial_test = "3.1.1"
 thiserror = "1.0.61"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.40.0", features = ["full"] }
 toml = "0.8.13"
 tower = { version = "0.4", features = ["make"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+rand = "0.8.5"
+reqwest = "0.12.3"
+reqwest-websocket = "0.4.2"

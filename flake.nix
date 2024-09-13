@@ -1,5 +1,5 @@
 {
-  description = "Service manager tailored for home servers";
+  description = "Declarative service manager tailored for home servers";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -38,7 +38,7 @@
           inherit src;
           strictDeps = true;
 
-		  nativeBuildInputs = with pkgs; [ pkg-config ];
+		      nativeBuildInputs = with pkgs; [ pkg-config ];
 
           buildInputs = [
             # Add additional build inputs here

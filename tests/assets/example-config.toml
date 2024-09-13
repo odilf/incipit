@@ -1,10 +1,10 @@
 domain = "example.com" # Main domain that get accessed by users
-addr = "0.0.0.0" # Address that `incipit` binds to (usually 0.0.0.0)
+incipit_host = "uoh"
+addr = "0.0.0.0" # Address that `incipit` binds to (usually 0.0.0.0 to expose to network)
 port = 80 # Port that `incipit` listens to (80 for http and 443 for https)
 
 # `incipit` will redirect traffic from "service1.example.com" to "0.0.0.0:6942"
-[[services]]
-name = "service1" # Name of the service
+[services.service1]
 port = 6942 # Port that the service listens to
 repo.url = "https://github.com/user/random-sveltekit-app" # URL of the repository
 repo.branch = "main" # Branch of the repository
@@ -12,7 +12,6 @@ command.build = "pnpm build" # Command to build the service after pulling the re
 command.run = "PORT=6942 node build" # Command to run the service
 
 # Another example
-[[services]]
-name = "git"
+[services.git]
 port = 8264
-command.run = "gitea --config app.ini"
+command.run = "gitea --config /path/to/app.ini"

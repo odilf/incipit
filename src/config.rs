@@ -5,67 +5,110 @@ use std::{
 };
 
 use color_eyre::eyre;
+use figment::Figment;
 
-use crate::service;
-
-const CONFIG_PATH_ENV: &str = "INCIPIT_CONFIG_PATH";
-
-/// Global configuration of `incipit`
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct FileConfig {
-    pub domain: String,
-
+/// Global configuration of incipit. See [`service::Config`] for configuring services.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Config {
     /// Path to the root directory for other relative paths. If `None`, it will default to the
     /// directory where `uoh.toml` is located.
+    ///
+    /// It is where the git repos are cloned to, and the root from which relative paths are
+    /// evaluated (such as `../path/to/file`).
+    ///
+    /// If not set explicitly in the config file, it will be the directory where the config is
+    /// located.
     pub root_directory: Option<PathBuf>,
 
-    pub services: Vec<service::config::FileConfig>,
+    /// The services that incipit runs. See [`service::Config`].
+    pub services: Vec<ServiceConfig>,
 
-    pub addr: Option<String>,
+    /// Host on which to access the incipit dashboard. If not set, incipit's dashboard won't be
+    /// accessible, but it will still start the services and reverse-proxy requests.
+    pub incipit_host: Option<String>,
+
+    /// Address to run incipit on.
+    ///
+    /// Defaults to `0.0.0.0` (to expose to network)
+    pub addr: Option<[u8; 4]>,
+
+    /// Port to run incipit on.
+    ///
+    /// Default to 80 for HTTP, consider setting it to 443 if you're using HTTPS.
     pub port: Option<u16>,
+
+    /// Path where the database is stored.
+    ///
+    /// Defaults to `$root_path/incipit.db`
+    pub db_path: Option<PathBuf>,
 }
 
-impl FileConfig {
-    fn into_runtime_config(self, root_directory: PathBuf) -> RuntimeConfig {
-        let services = self
-            .services
-            .into_iter()
-            .map(|s| s.into_runtime_config(&self.domain))
-            .collect();
+impl Config {
+    pub fn new() -> eyre::Result<Self> {
+        use figment::providers::{Env, Format as _, Json, Toml};
 
-        RuntimeConfig {
-            domain: self.domain,
-            root_directory: self.root_directory.unwrap_or(root_directory),
-            services,
+        let config = Figment::new()
+            .merge(Toml::file("incipit.toml"))
+            .merge(Env::prefixed("INCIPIT_"))
+            // .merge(providers::Env::raw().only(&["RUSTC", "RUSTDOC"]))
+            .join(Json::file("incipit.json"))
+            .extract()?;
 
-            addr: self
-                .addr
-                .and_then(|addr| addr.parse().ok())
-                .unwrap_or(IpAddr::from([0, 0, 0, 0])),
-            port: self.port.unwrap_or(80),
-        }
+        Ok(config)
     }
 }
 
-/// Runtime configuration of `incipit`. This is a modified version of `GlobalUserConfig` that
-/// is more populated with runtime and default values.
-// TODO: Figure out a nicer way to do this with less repetition.
-#[derive(Debug, Clone)]
-pub struct RuntimeConfig {
-    pub domain: String,
-    pub addr: IpAddr,
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ServiceConfig {
+    /// Name of the service.
+    pub name: String,
+
+    /// Port that the service listens on.
     pub port: u16,
-    pub root_directory: PathBuf,
-    pub services: Vec<service::config::RuntimeConfig>,
+
+    /// Host of the service. If `None`, it will default to <name>.<domain> (where the domain is
+    /// obtained from the global config).
+    pub host: String,
+
+    /// Options related to the Git repository.
+    pub repo: Option<RepoConfig>,
+
+    /// Options related to commands for updating and running the service
+    pub command: Option<CommandConfig>,
 }
 
-impl RuntimeConfig {
+#[derive(Debug, Clone, serde::Deserialize, clap::Parser)]
+pub struct RepoConfig {
+    /// url to the git repository.
+    ///
+    /// It needs to be accessible by the user running `incipit`. That is,
+    /// either public or with the appropriate permissions.
+    pub url: String,
+
+    /// Branch to pull from. If `None`, it will default to `main`.
+    pub branch: Option<String>,
+    // TODO:
+    // pub auto_pull: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CommandConfig {
+    /// Command to run the service
+    pub run: String,
+}
+
+impl Config {
+    pub fn addr(&self) -> IpAddr {
+        const DEFAULT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0));
+        self.addr.map(Into::into).unwrap_or(DEFAULT)
+    }
+
     pub fn socket(&self) -> SocketAddr {
-        SocketAddr::new(self.addr, self.port)
+        SocketAddr::new(self.addr(), self.port.unwrap_or(80))
     }
 }
 
-pub fn watch_config(config: RuntimeConfig) -> eyre::Result<Arc<RwLock<RuntimeConfig>>> {
+pub fn watch_config(config: Config) -> eyre::Result<Arc<RwLock<Config>>> {
     let config = Arc::new(RwLock::new(config));
 
     // TODO: Watch files
@@ -82,22 +125,6 @@ pub fn watch_config(config: RuntimeConfig) -> eyre::Result<Arc<RwLock<RuntimeCon
     Ok(config)
 }
 
-/// Finds and reads a config
-///
-/// It searches from an env variable or if some parent directory contains a file named `uoh.toml`.
-pub fn read_config() -> Result<RuntimeConfig, GetConfigError> {
-    let Some(directory) = find_config_dir() else {
-        return Err(GetConfigError::ConfigNotFound);
-    };
-
-    tracing::debug!("Found config in {}", directory.display());
-    let file = std::fs::read_to_string(directory.join("uoh.toml"))?;
-
-    let user_config: FileConfig = toml::from_str(&file)?;
-
-    Ok(user_config.into_runtime_config(directory))
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum GetConfigError {
     #[error("Config not found")]
@@ -110,21 +137,6 @@ pub enum GetConfigError {
     ConfigParseError(#[from] toml::de::Error),
 }
 
-fn find_config_dir() -> Option<PathBuf> {
-    tracing::trace!("Searching for config");
-    if let Some(path) = std::env::var_os(CONFIG_PATH_ENV) {
-        return Some(PathBuf::from(path).to_path_buf());
-    }
-
-    let mut directory = std::env::current_dir().ok()?;
-
-    while !directory.join("uoh.toml").exists() {
-        directory = directory.parent()?.to_path_buf();
-    }
-
-    Some(directory)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,7 +144,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_find_config() {
-        let path = find_config_dir();
-        assert!(path.is_some());
+        let path = Config::new();
+        assert!(path.is_ok());
     }
 }
