@@ -6,7 +6,10 @@ use rand::{distributions::WeightedIndex, prelude::Distribution as _, SeedableRng
 use reqwest_websocket::{Message, RequestBuilderExt as _};
 use serial_test::serial;
 
-use crate::util::{self, test::WebSocketServer};
+use crate::util::{
+    self,
+    test::{WebSocketServer, TEST_INCIPIT_PORT},
+};
 
 use super::{mapping::Target, HostMapping};
 
@@ -160,7 +163,7 @@ async fn forward_websockets() -> eyre::Result<()> {
 
     // Creates a GET request, upgrades and sends it
     let response = reqwest::Client::default()
-        .get("ws://localhost/")
+        .get(format!("ws://localhost:{TEST_INCIPIT_PORT}/"))
         .header("Host", "websockets.example.com")
         .upgrade()
         .send() // Prepares the WebSocket upgrade

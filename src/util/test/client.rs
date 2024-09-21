@@ -1,13 +1,15 @@
 use color_eyre::eyre;
 use reqwest::RequestBuilder;
 
+use super::TEST_INCIPIT_PORT;
+
 pub fn builder(host: &str, path: &str) -> RequestBuilder {
     let client = reqwest::Client::new();
 
     let path = path.trim_start_matches('/');
 
     client
-        .get(format!("http://localhost/{path}"))
+        .get(format!("http://localhost:{TEST_INCIPIT_PORT}/{path}"))
         .header("Host", host)
 }
 

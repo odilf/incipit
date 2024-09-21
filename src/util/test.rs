@@ -11,12 +11,14 @@ use crate::Config;
 use color_eyre::eyre;
 use tokio::task::JoinHandle;
 
+pub const TEST_INCIPIT_PORT: u16 = 3456;
+
 pub fn example_config() -> Config {
     Config {
         root_directory: None,
         incipit_host: Some("incipit.example.com".into()),
         addr: None,
-        port: None,
+        port: Some(TEST_INCIPIT_PORT),
         db_path: None,
         services: services().into_iter().map(|s| s.config).collect(),
     }
