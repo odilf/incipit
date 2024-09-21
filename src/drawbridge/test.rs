@@ -178,8 +178,8 @@ async fn forward_websockets() -> eyre::Result<()> {
         websocket.send(Message::Text(msg.into())).await?;
     }
 
-    // Bodge
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Big Bodge
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Check if server has received the messages
     let history = server.history.lock().unwrap().clone();
