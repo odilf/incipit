@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use color_eyre::eyre;
 use futures::{SinkExt as _, TryStreamExt as _};
 use rand::{distributions::WeightedIndex, prelude::Distribution as _, SeedableRng as _};
 use reqwest_websocket::{Message, RequestBuilderExt as _};
 use serial_test::serial;
 
-use crate::util;
+use crate::util::{self, test::WebSocketServer};
 
 use super::{mapping::Target, HostMapping};
 
@@ -112,7 +114,7 @@ async fn handle_a_bunch_of_concurrent_requests() -> eyre::Result<()> {
 
     // Seeded rng for consistency
     let mut rng = rand::rngs::StdRng::seed_from_u64(6942);
-    let dist = WeightedIndex::new(&weights).unwrap();
+    let dist = WeightedIndex::new(weights).unwrap();
 
     let mut expected_counts = vec![0; 3];
 
@@ -140,31 +142,82 @@ async fn handle_a_bunch_of_concurrent_requests() -> eyre::Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "not implemented"]
+#[serial]
 async fn forward_websockets() -> eyre::Result<()> {
-    let (_services, _) = util::test::scaffold().await?;
+    let config = crate::config::ServiceConfig {
+        port: 4455,
+        host: "websockets.example.com".to_string(),
+        name: "websocket_service".to_string(),
+        repo: None,
+        command: None,
+    };
 
-    // Creates a GET request, upgrades and sends it.
+    // TODO: This should be a test utility function and yada yada
+
+    let mut server = WebSocketServer::start(([127, 0, 0, 1], config.port).into()).await?;
+
+    util::test::start_incipit_background().await?;
+
+    // Creates a GET request, upgrades and sends it
     let response = reqwest::Client::default()
         .get("ws://localhost/")
-        .header("Host", "service0.example.com")
+        .header("Host", "websockets.example.com")
         .upgrade()
-        // Prepares the WebSocket upgrade.
-        .send()
+        .send() // Prepares the WebSocket upgrade
         .await?;
 
-    // Turns the response into a WebSocket stream.
     let mut websocket = response.into_websocket().await?;
 
-    // The WebSocket implements `Sink<Message>`.
-    websocket.send(Message::Text("Hello, World".into())).await?;
+    const MSGS_SEND: [&str; 2] = ["Hello world", "YOOOOOOOOO???"];
+    const MSGS_RECEIVE: [&str; 2] = ["Hello from the server", "YIPEEEEEEEEEE"];
 
-    // The WebSocket is also a `TryStream` over `Message`s.
-    while let Some(message) = websocket.try_next().await? {
-        if let Message::Text(text) = message {
-            println!("received: {text}")
-        }
+    for msg in MSGS_SEND {
+        websocket.send(Message::Text(msg.into())).await?;
     }
 
-    todo!();
+    // Bodge
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Check if server has received the messages
+    let history = server.history.lock().unwrap().clone();
+    assert_eq!(history[0], MSGS_SEND[0]);
+    assert_eq!(history[1], MSGS_SEND[1]);
+
+    // Check if client receives the messages
+    for msg in MSGS_RECEIVE {
+        server.send(msg.to_string())?;
+
+        let Some(message) = websocket.try_next().await? else {
+            panic!("Didn't get websocket from server");
+        };
+
+        let Message::Text(message) = message else {
+            panic!("Expected text message, got: {message:?}");
+        };
+
+        assert_eq!(msg, &message);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "not implemented"]
+async fn handle_websocket_close() -> eyre::Result<()> {
+    todo!()
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "not implemented"]
+async fn handle_websocket_with_path_and_query() -> eyre::Result<()> {
+    todo!()
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "not implemented"]
+async fn handle_websocket_with_headers() -> eyre::Result<()> {
+    todo!()
 }

@@ -3,14 +3,13 @@ mod server;
 mod service;
 
 pub use client::fetch;
-pub use server::Server;
+pub use server::{Server, WebSocketServer};
 pub use service::{services, start_services, Service};
 
 use crate::Config;
 
 use color_eyre::eyre;
 use tokio::task::JoinHandle;
-
 
 pub fn example_config() -> Config {
     Config {
@@ -45,4 +44,3 @@ pub async fn start_incipit_background() -> eyre::Result<JoinHandle<eyre::Result<
 
     Ok(handle)
 }
-

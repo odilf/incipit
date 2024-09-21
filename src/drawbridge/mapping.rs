@@ -31,7 +31,12 @@ pub trait HostMapping {
 
 impl HostMapping for Config {
     fn route(&self, host: &str) -> Target {
-        if self.incipit_host.as_ref().map(|ih| ih == host).unwrap_or(false) {
+        if self
+            .incipit_host
+            .as_ref()
+            .map(|ih| ih == host)
+            .unwrap_or(false)
+        {
             Target::Incipit
         } else if let Some(service) = self.services.iter().find(|&service| service.host == *host) {
             Target::Socket((self.addr(), service.port).into())
@@ -50,7 +55,9 @@ impl HostMapping for Arc<RwLock<Config>> {
 }
 
 impl<T> HostMapping for T
-    where T: Fn(&str) -> Target {
+where
+    T: Fn(&str) -> Target,
+{
     fn route(&self, host: &str) -> Target {
         self(host)
     }

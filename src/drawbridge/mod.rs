@@ -1,6 +1,7 @@
 //! Utilities to forward requests from one host to another.
 
 mod mapping;
+mod websocket;
 
 #[cfg(test)]
 mod test;
@@ -53,6 +54,7 @@ async fn forward(request: Request, target: Target, next: Next) -> eyre::Result<R
     Ok(response)
 }
 
+/// Middleware to forward requests to the appropriate target.
 pub async fn middleware(
     State(config): State<Arc<RwLock<Config>>>,
     Host(host): Host,
@@ -60,6 +62,13 @@ pub async fn middleware(
     next: Next,
 ) -> Response {
     let target = config.read().unwrap().route(&host);
+
+    let (parts, body) = request.into_parts();
+    let mut request = Request::from_parts(parts.clone(), body);
+
+    if let Some(response) = websocket::handle(&mut request, parts, target).await {
+        return response;
+    }
 
     match forward(request, target, next).await {
         Ok(response) => response,

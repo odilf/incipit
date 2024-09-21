@@ -6,8 +6,8 @@ pub use config::Config;
 
 use axum::{middleware, Router};
 use color_eyre::eyre::{self, Context as _};
-use tokio::net::TcpListener;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 
 /// Starts incipit.
 ///

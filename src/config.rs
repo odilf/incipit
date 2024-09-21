@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -9,6 +10,7 @@ use figment::Figment;
 
 /// Global configuration of incipit. See [`service::Config`] for configuring services.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(from = "FileConfig")]
 pub struct Config {
     /// Path to the root directory for other relative paths. If `None`, it will default to the
     /// directory where `uoh.toml` is located.
@@ -50,7 +52,6 @@ impl Config {
         let config = Figment::new()
             .merge(Toml::file("incipit.toml"))
             .merge(Env::prefixed("INCIPIT_"))
-            // .merge(providers::Env::raw().only(&["RUSTC", "RUSTDOC"]))
             .join(Json::file("incipit.json"))
             .extract()?;
 
@@ -58,10 +59,46 @@ impl Config {
     }
 }
 
+/// Layout of the config that gets deserialized from. This is a separate struct to make
+/// the file more convinient to write and the actual condig value more sensible at the time of
+/// using it.
+#[derive(serde::Deserialize)]
+struct FileConfig {
+    root_directory: Option<PathBuf>,
+    service: HashMap<String, ServiceConfig<Option<()>>>,
+    incipit_host: Option<String>,
+    addr: Option<[u8; 4]>,
+    port: Option<u16>,
+    db_path: Option<PathBuf>,
+}
+
+impl From<FileConfig> for Config {
+    fn from(file: FileConfig) -> Self {
+        Self {
+            root_directory: file.root_directory,
+            services: file
+                .service
+                .into_iter()
+                .map(|(name, service)| ServiceConfig {
+                    name,
+                    port: service.port,
+                    host: service.host,
+                    repo: service.repo,
+                    command: service.command,
+                })
+                .collect(),
+            incipit_host: file.incipit_host,
+            addr: file.addr,
+            port: file.port,
+            db_path: file.db_path,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
-pub struct ServiceConfig {
+pub struct ServiceConfig<T = String> {
     /// Name of the service.
-    pub name: String,
+    pub name: T,
 
     /// Port that the service listens on.
     pub port: u16,

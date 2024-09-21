@@ -12,7 +12,6 @@
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.rust-analyzer-src.follows = "";
     };
 
     flake-utils.url = "github:numtide/flake-utils";
@@ -46,6 +45,7 @@
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
+            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration # For nix-darwin
           ];
 
           # Additional environment variables can be set directly
@@ -104,14 +104,14 @@
             inherit src;
           };
 
-          # Run tests with cargo-nextest
-          # Consider setting `doCheck = false` on `incipit` if you do not want
-          # the tests to run twice
-          incipit-nextest = craneLib.cargoNextest (commonArgs // {
-            inherit cargoArtifacts;
-            partitions = 1;
-            partitionType = "count";
-          });
+          # # Run tests with cargo-nextest
+          # # Consider setting `doCheck = false` on `incipit` if you do not want
+          # # the tests to run twice
+          # incipit-nextest = craneLib.cargoNextest (commonArgs // {
+          #   inherit cargoArtifacts;
+          #   partitions = 1;
+          #   partitionType = "count";
+          # });
         };
 
         packages = {
