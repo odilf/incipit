@@ -4,10 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     fenix = {
       url = "github:nix-community/fenix";
@@ -32,7 +29,6 @@
         craneLib = crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
 
-        # Common arguments can be set here to avoid repeating them later
         commonArgs = {
           inherit src;
           strictDeps = true;
@@ -40,16 +36,11 @@
 		      nativeBuildInputs = with pkgs; [ pkg-config ];
 
           buildInputs = [
-            # Add additional build inputs here
 			      pkgs.openssl
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
             pkgs.libiconv
             pkgs.darwin.apple_sdk.frameworks.SystemConfiguration # For nix-darwin
           ];
-
-          # Additional environment variables can be set directly
-          # MY_CUSTOM_VAR = "some value";
         };
 
         craneLibLLvmTools = craneLib.overrideToolchain
