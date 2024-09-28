@@ -1,16 +1,18 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
+    thread,
 };
 
-use color_eyre::eyre;
+use color_eyre::eyre::{self, Context as _};
 use figment::Figment;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 /// Global configuration of incipit. See [`service::Config`] for configuring services.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
-#[serde(from = "FileConfig")]
+#[serde(try_from = "FileConfig")]
 pub struct Config {
     /// Path to the root directory for other relative paths. If `None`, it will default to the
     /// directory where `uoh.toml` is located.
@@ -20,7 +22,7 @@ pub struct Config {
     ///
     /// If not set explicitly in the config file, it will be the directory where the config is
     /// located.
-    pub root_directory: Option<PathBuf>,
+    pub file_path: Option<PathBuf>,
 
     /// The services that incipit runs. See [`service::Config`].
     pub services: Vec<ServiceConfig>,
@@ -32,7 +34,7 @@ pub struct Config {
     /// Address to run incipit on.
     ///
     /// Defaults to `0.0.0.0` (to expose to network)
-    pub addr: Option<[u8; 4]>,
+    pub addr: Option<IpAddr>,
 
     /// Port to run incipit on.
     ///
@@ -49,12 +51,29 @@ impl Config {
     pub fn new() -> eyre::Result<Self> {
         use figment::providers::{Env, Format as _, Json, Toml};
 
-        let config = Figment::new()
+        let figment = Figment::new()
             .merge(Toml::file("incipit.toml"))
             .merge(Env::prefixed("INCIPIT_"))
-            .join(Json::file("incipit.json"))
-            .extract()?;
+            .join(Json::file("incipit.json"));
 
+        let mut config: Config = figment.extract()?;
+
+        // Dance to get the source file path.
+        let get_source = || {
+            figment
+                .metadata()
+                .find_map(|meta| meta.source.clone())
+                .and_then(|source| source.file_path().map(|path| path.to_path_buf()))
+        };
+
+        config.file_path = config.file_path.or_else(get_source);
+
+        Ok(config)
+    }
+
+    pub fn from_file(path: &Path) -> eyre::Result<Self> {
+        let content = std::fs::read_to_string(path).wrap_err("Failed to read config")?;
+        let config: Config = toml::from_str(&content).wrap_err("Failed to parse config")?;
         Ok(config)
     }
 }
@@ -64,18 +83,18 @@ impl Config {
 /// using it.
 #[derive(serde::Deserialize)]
 struct FileConfig {
-    root_directory: Option<PathBuf>,
     service: HashMap<String, ServiceConfig<Option<()>>>,
     incipit_host: Option<String>,
-    addr: Option<[u8; 4]>,
+    addr: Option<IpAddr>,
     port: Option<u16>,
     db_path: Option<PathBuf>,
 }
 
-impl From<FileConfig> for Config {
-    fn from(file: FileConfig) -> Self {
-        Self {
-            root_directory: file.root_directory,
+impl TryFrom<FileConfig> for Config {
+    type Error = eyre::Error;
+    fn try_from(file: FileConfig) -> eyre::Result<Self> {
+        let config = Self {
+            file_path: None,
             services: file
                 .service
                 .into_iter()
@@ -91,7 +110,9 @@ impl From<FileConfig> for Config {
             addr: file.addr,
             port: file.port,
             db_path: file.db_path,
-        }
+        };
+
+        Ok(config)
     }
 }
 
@@ -145,21 +166,41 @@ impl Config {
     }
 }
 
-pub fn watch_config(config: Config) -> eyre::Result<Arc<RwLock<Config>>> {
-    let config = Arc::new(RwLock::new(config));
+pub fn watch(config: Arc<RwLock<Config>>) -> eyre::Result<Option<RecommendedWatcher>> {
+    let Some(config_path) = config.read().unwrap().file_path.clone() else {
+        tracing::warn!("Not watching config");
+        return Ok(None);
+    };
 
-    // TODO: Watch files
-    // let mut watcher = notify::recommended_watcher(|res| match res {
-    //     Ok(event) => tracing::info!("event: {:?}", event),
-    //     Err(e) => tracing::warn!("watch error: {:?}", e),
-    // })?;
-    //
-    // let config_path = config.read().unwrap().root_directory.join("uoh.toml");
-    // tracing::info!("Watching for changes in {config_path:?}",);
-    //
-    // watcher.watch(&config_path, RecursiveMode::Recursive)?;
+    let (sender, receiver) = std::sync::mpsc::channel();
 
-    Ok(config)
+    let mut watcher = RecommendedWatcher::new(sender.clone(), Default::default())?;
+
+    watcher.watch(
+        config_path
+            .parent()
+            .expect("`config_path` is a file so it will always have a parent."),
+        RecursiveMode::NonRecursive,
+    )?;
+
+    tracing::info!(?config_path, "Watching for changes");
+
+    let _handle = thread::spawn(move || {
+        for event in receiver.into_iter() {
+            if !event?.paths.contains(&config_path) {
+                continue;
+            }
+
+            let mut config = config.write().expect("Lock shouldn't be poisoned");
+            *config = Config::new().wrap_err("Failed to reload config")?;
+
+            tracing::info!("Reloaded config: {config:#?}");
+        }
+
+        eyre::Ok(())
+    });
+
+    Ok(Some(watcher))
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -183,5 +224,26 @@ mod tests {
     fn test_find_config() {
         let path = Config::new();
         assert!(path.is_ok());
+    }
+
+    #[test]
+    fn test_try_from_file_config() -> eyre::Result<()> {
+        let file_config = FileConfig {
+            service: HashMap::new(),
+            incipit_host: Some("incipit.example.com".into()),
+            addr: Some([127, 0, 0, 1].into()),
+            port: Some(8080),
+            db_path: Some(PathBuf::from("db")),
+        };
+
+        let config = Config::try_from(file_config)?;
+
+        assert_eq!(config.file_path, None);
+        assert_eq!(config.incipit_host, Some("incipit.example.com".into()));
+        assert_eq!(config.addr, Some([127, 0, 0, 1].into()));
+        assert_eq!(config.port, Some(8080));
+        assert_eq!(config.db_path, Some(PathBuf::from("db")));
+
+        Ok(())
     }
 }
