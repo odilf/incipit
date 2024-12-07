@@ -16,15 +16,11 @@ pub async fn run(config: Config) -> eyre::Result<()> {
     let config = Arc::new(RwLock::new(config));
 
     let (http_listener, router) = setup(Arc::clone(&config)).await?;
-    let _watcher = config::watch(config)?.unwrap();
+    let _watcher = config::watch(config)?;
 
-    println!("watcher alive");
     axum::serve(http_listener, router)
         .await
         .wrap_err("Axum server failed")?;
-
-    println!("watcher about to be dropped");
-    drop(_watcher);
 
     Ok(())
 }
